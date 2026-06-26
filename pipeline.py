@@ -9,7 +9,10 @@ Reuses the proven helpers (load_ref_images, augment_views, stitch_rtl,
 normalize_widths, cer) straight from generate_styled_sheet.py to stay in sync
 with the CLI experiments instead of duplicating them.
 """
-import os, sys, json, random
+import os
+# must be set before torch initializes the CUDA caching allocator
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+import sys, json, random
 from types import SimpleNamespace
 import torch
 import torchvision
@@ -90,32 +93,43 @@ class Generator:
                 self._feat_cache[s] = self.fe(refs).detach()
         return self._feat_cache[s]
 
-    def _gen_candidates(self, word, sfeat, s, k, steps):
-        labels = torch.tensor([s] * k).long().to(DEV)
-        sfeat_b = sfeat.repeat(k, 1)
-        with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
-            tf = self.tok([word] * k, padding="max_length", truncation=True,
-                          return_tensors="pt", max_length=40).to(DEV)
-            x = torch.randn((k, 4, IMG[0] // 8, IMG[1] // 8)).to(DEV)
-            self.sched.set_timesteps(steps)
-            for t in self.sched.timesteps:
-                tt = (torch.ones(k) * t.item()).long().to(DEV)
-                resid = self.unet(x, tt, tf, labels, original_images=None,
-                                  mix_rate=None, style_extractor=sfeat_b)
-                x = self.sched.step(resid, t, x).prev_sample
-            latents = 1 / 0.18215 * x
-            imgs = self.vae.module.decode(latents).sample
-            imgs = (imgs / 2 + 0.5).clamp(0, 1).cpu()
-        return [G.tight_clean(torchvision.transforms.ToPILImage()(im).convert("RGB")) for im in imgs]
+    def _gen_candidates(self, word, sfeat, s, k, steps, batch=8):
+        """Generate k candidates in sub-batches so peak VRAM is bounded by `batch`."""
+        out = []
+        for start in range(0, k, batch):
+            kk = min(batch, k - start)
+            labels = torch.tensor([s] * kk).long().to(DEV)
+            sfeat_b = sfeat.repeat(kk, 1)
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+                tf = self.tok([word] * kk, padding="max_length", truncation=True,
+                              return_tensors="pt", max_length=40).to(DEV)
+                x = torch.randn((kk, 4, IMG[0] // 8, IMG[1] // 8)).to(DEV)
+                self.sched.set_timesteps(steps)
+                for t in self.sched.timesteps:
+                    tt = (torch.ones(kk) * t.item()).long().to(DEV)
+                    resid = self.unet(x, tt, tf, labels, original_images=None,
+                                      mix_rate=None, style_extractor=sfeat_b)
+                    x = self.sched.step(resid, t, x).prev_sample
+                latents = 1 / 0.18215 * x
+                imgs = self.vae.module.decode(latents).sample
+                imgs = (imgs / 2 + 0.5).clamp(0, 1).cpu()
+            out.extend(G.tight_clean(torchvision.transforms.ToPILImage()(im).convert("RGB")) for im in imgs)
+            del labels, sfeat_b, x, latents, imgs, resid
+        return out
 
-    def _ocr(self, imgs):
-        pv = self.proc(imgs)["pixel_values"].to(DEV, dtype=self.htr.dtype)
-        with torch.no_grad():
-            gen = self.htr.generate(pv, num_beams=2, max_length=48,
-                                    output_scores=True, return_dict_in_generate=True)
-        preds = self.htok.batch_decode(gen.sequences, skip_special_tokens=True)
-        ss = getattr(gen, "sequences_scores", None)
-        confs = torch.exp(ss).tolist() if ss is not None else [0.0] * len(preds)
+    def _ocr(self, imgs, batch=16):
+        """OCR in sub-batches so a big candidate*views set can't spike VRAM."""
+        preds, confs = [], []
+        for start in range(0, len(imgs), batch):
+            chunk = imgs[start:start + batch]
+            pv = self.proc(chunk)["pixel_values"].to(DEV, dtype=self.htr.dtype)
+            with torch.no_grad():
+                gen = self.htr.generate(pv, num_beams=2, max_length=48,
+                                        output_scores=True, return_dict_in_generate=True)
+            preds += self.htok.batch_decode(gen.sequences, skip_special_tokens=True)
+            ss = getattr(gen, "sequences_scores", None)
+            confs += torch.exp(ss).tolist() if ss is not None else [0.0] * len(chunk)
+            del pv, gen
         return preds, confs
 
     def _select(self, imgs, w, aberration):
@@ -144,25 +158,27 @@ class Generator:
         words = text.split()
         if not words:
             raise ValueError("empty text")
-        candidates = max(1, min(int(candidates), 30))
+        candidates = max(1, min(int(candidates), 20))
         s = random.randint(0, self.style_classes - 1) if style is None else \
             max(0, min(int(style), self.style_classes - 1))
-        sfeat = self._style_feat(s)
+        try:
+            sfeat = self._style_feat(s)
+            chosen, cers = [], []
+            for w in words:
+                imgs = self._gen_candidates(w, sfeat, s, candidates, steps)
+                if candidates == 1:
+                    chosen.append(imgs[0]); cers.append(None)
+                else:
+                    bi, c = self._select(imgs, w, aberration)
+                    chosen.append(imgs[bi]); cers.append(c)
 
-        chosen, cers = [], []
-        for w in words:
-            imgs = self._gen_candidates(w, sfeat, s, candidates, steps)
-            if candidates == 1:
-                chosen.append(imgs[0]); cers.append(None)
-            else:
-                bi, c = self._select(imgs, w, aberration)
-                chosen.append(imgs[bi]); cers.append(c)
-
-        if normalize:
-            chosen = G.normalize_widths(chosen, words, 64)
-        line = G.stitch_rtl(chosen, 64, space=34, pad=10)
-        mean_cer = None
-        if any(c is not None for c in cers):
-            vals = [c for c in cers if c is not None]
-            mean_cer = sum(vals) / len(vals)
-        return {"image": line, "style": s, "words": len(words), "mean_cer": mean_cer}
+            if normalize:
+                chosen = G.normalize_widths(chosen, words, 64)
+            line = G.stitch_rtl(chosen, 64, space=34, pad=10)
+            mean_cer = None
+            if any(c is not None for c in cers):
+                vals = [c for c in cers if c is not None]
+                mean_cer = sum(vals) / len(vals)
+            return {"image": line, "style": s, "words": len(words), "mean_cer": mean_cer}
+        finally:
+            torch.cuda.empty_cache()
