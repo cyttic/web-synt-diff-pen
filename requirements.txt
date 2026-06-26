@@ -1,0 +1,5 @@
+# Web-service deps (install into the existing ML env that already has
+# torch / diffusers / transformers / pillow / numpy / torchvision).
+fastapi
+uvicorn[standard]
+python-multipart
