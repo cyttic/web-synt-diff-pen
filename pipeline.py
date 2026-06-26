@@ -158,7 +158,7 @@ class Generator:
         words = text.split()
         if not words:
             raise ValueError("empty text")
-        candidates = max(1, min(int(candidates), 20))
+        candidates = max(1, min(int(candidates), 50))
         s = random.randint(0, self.style_classes - 1) if style is None else \
             max(0, min(int(style), self.style_classes - 1))
         try:

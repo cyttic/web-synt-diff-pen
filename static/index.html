@@ -58,8 +58,8 @@
 
       <div class="field">
         <label>Candidates per word (best-of-N)</label>
-        <input type="number" id="candidates" min="1" max="30" value="5" style="width:110px">
-        <div class="hint">generate N drafts per word, keep the one the HTR reads best</div>
+        <input type="number" id="candidates" min="1" max="50" value="5" style="width:110px">
+        <div class="hint">1–50 drafts per word; keep the one the HTR reads best</div>
       </div>
 
       <div class="field">
@@ -97,13 +97,30 @@ fetch('/api/info').then(r => r.json()).then(d => {
 
 $('randStyle').addEventListener('change', e => { $('style').disabled = e.target.checked; });
 
+const MAX_WORDS = 14;
+function validateInput(text) {
+  const t = (text || '').trim();
+  if (!t) return 'Please enter some Hebrew text.';
+  const words = t.split(/\s+/);
+  if (words.length > MAX_WORDS) return `Too long: ${words.length} words (max ${MAX_WORDS}).`;
+  if (!/^[֐-׿\s]+$/.test(t)) return 'Hebrew letters only — please remove non-Hebrew characters, digits or punctuation.';
+  if (!/[א-ת]/.test(t)) return 'Please enter Hebrew text.';
+  return null;
+}
+
 $('go').addEventListener('click', async () => {
   const btn = $('go'), out = $('output'), meta = $('meta'), err = $('err');
   err.textContent = ''; meta.textContent = '';
+
+  const vmsg = validateInput($('text').value);
+  if (vmsg) { err.textContent = vmsg; return; }
+  let cand = parseInt($('candidates').value);
+  if (!(cand >= 1 && cand <= 50)) { err.textContent = 'Candidates per word must be 1–50.'; return; }
+
   const body = {
-    text: $('text').value,
+    text: $('text').value.trim(),
     style: $('randStyle').checked ? null : parseInt($('style').value),
-    candidates: parseInt($('candidates').value),
+    candidates: cand,
     aberration: $('aberration').checked,
     normalize: $('normalize').checked,
   };

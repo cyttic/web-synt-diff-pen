@@ -10,6 +10,7 @@ Run:  uvicorn app:app --host 0.0.0.0 --port 8000
 """
 import base64
 import io
+import re
 import threading
 
 from fastapi import FastAPI, HTTPException
@@ -18,6 +19,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from pipeline import Generator
+
+MAX_WORDS = 14
+MAX_CANDIDATES = 50
+HEBREW_ONLY = re.compile(r"^[֐-׿\s]+$")     # Hebrew block + whitespace
+HEBREW_LETTER = re.compile(r"[א-ת]")        # at least one real letter
+
+
+def validate_text(text: str) -> str | None:
+    """Return an error message if the input isn't acceptable, else None."""
+    t = (text or "").strip()
+    if not t:
+        return "Please enter some Hebrew text."
+    words = t.split()
+    if len(words) > MAX_WORDS:
+        return f"Too long: {len(words)} words (max {MAX_WORDS})."
+    if not HEBREW_ONLY.match(t):
+        return "Hebrew letters only — please remove non-Hebrew characters, digits or punctuation."
+    if not HEBREW_LETTER.search(t):
+        return "Please enter Hebrew text."
+    return None
 
 app = FastAPI(title="Synth DiffusionPen — Hebrew Handwriting")
 _gpu_lock = threading.Lock()
@@ -47,8 +68,13 @@ def info():
 def generate(req: GenReq):
     if gen is None:
         raise HTTPException(503, "model still loading")
-    if not req.text.strip():
-        raise HTTPException(400, "text is empty")
+    msg = validate_text(req.text)
+    if msg:
+        raise HTTPException(400, msg)
+    if not 1 <= req.candidates <= MAX_CANDIDATES:
+        raise HTTPException(400, f"Candidates per word must be 1–{MAX_CANDIDATES}.")
+    if req.style is not None and not 0 <= req.style < gen.style_classes:
+        raise HTTPException(400, f"Writer style must be 0–{gen.style_classes - 1}.")
     with _gpu_lock:
         try:
             out = gen.generate(text=req.text, style=req.style,
