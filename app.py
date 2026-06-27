@@ -57,6 +57,7 @@ class GenReq(BaseModel):
     candidates: int = 5               # best-of-N per word
     aberration: bool = False          # TTA robustness scoring
     normalize: bool = True            # equalize per-character width
+    sampler: str = "dpm"              # "dpm" (fast) or "ddim"
 
 
 @app.get("/api/info")
@@ -75,18 +76,21 @@ def generate(req: GenReq):
         raise HTTPException(400, f"Candidates per word must be 1–{MAX_CANDIDATES}.")
     if req.style is not None and not 0 <= req.style < gen.style_classes:
         raise HTTPException(400, f"Writer style must be 0–{gen.style_classes - 1}.")
+    if req.sampler not in ("dpm", "ddim", "ddim100"):
+        raise HTTPException(400, "Sampler must be 'dpm', 'ddim', or 'ddim100'.")
     with _gpu_lock:
         try:
             out = gen.generate(text=req.text, style=req.style,
                                candidates=req.candidates, aberration=req.aberration,
-                               normalize=req.normalize)
+                               normalize=req.normalize, sampler=req.sampler)
         except Exception as e:
             raise HTTPException(500, f"generation failed: {e}")
     buf = io.BytesIO()
     out["image"].save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
     return {"image": "data:image/png;base64," + b64,
-            "style": out["style"], "words": out["words"], "mean_cer": out["mean_cer"]}
+            "style": out["style"], "words": out["words"], "mean_cer": out["mean_cer"],
+            "sampler": out["sampler"], "steps": out["steps"]}
 
 
 @app.get("/")

@@ -63,6 +63,16 @@
       </div>
 
       <div class="field">
+        <label>Sampler</label>
+        <select id="sampler" style="background:#11141a;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:14px;width:150px">
+          <option value="dpm" selected>DPM (15 steps, fast)</option>
+          <option value="ddim">DDIM (50 steps, slow)</option>
+          <option value="ddim100">DDIM (100 steps, best)</option>
+        </select>
+        <div class="hint">diffusion solver; DPM is ~2.5× faster, same/better quality</div>
+      </div>
+
+      <div class="field">
         <label>Options</label>
         <label class="chk"><input type="checkbox" id="aberration">
           Aberration robustness (test-time augmentation)</label>
@@ -123,6 +133,7 @@ $('go').addEventListener('click', async () => {
     candidates: cand,
     aberration: $('aberration').checked,
     normalize: $('normalize').checked,
+    sampler: $('sampler').value,
   };
   btn.disabled = true; out.innerHTML = '<div class="spin"></div>';
   try {
@@ -133,6 +144,7 @@ $('go').addEventListener('click', async () => {
     const d = await r.json();
     out.innerHTML = '<img src="' + d.image + '" alt="handwriting">';
     let m = 'style ' + d.style + ' · ' + d.words + ' words';
+    if (d.sampler) m += ' · ' + d.sampler + '-' + d.steps;
     if (d.mean_cer !== null && d.mean_cer !== undefined) m += ' · mean CER ' + d.mean_cer.toFixed(3);
     meta.textContent = m;
   } catch (e) {

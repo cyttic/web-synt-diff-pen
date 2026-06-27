@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import torch
 import torchvision
 from torch.nn import DataParallel
-from diffusers import AutoencoderKL, DPMSolverMultistepScheduler
+from diffusers import AutoencoderKL, DPMSolverMultistepScheduler, DDIMScheduler
 from transformers import CanineModel, CanineTokenizer
 
 # --- locate the source repo that holds the models + helper code ---
@@ -37,6 +37,23 @@ SD = os.path.join(SRC, "stable-diffusion-v1-5")
 HTR_MODEL = os.environ.get("HTR_MODEL", "cyttic/exp10-trocr-hebrew-matan-full")
 IMG = (64, 256)
 DEV = G.DEVICE  # "cuda:0"
+
+# UNet checkpoint source. Precedence: explicit local path (MATAN_CKPT) ->
+# download ema from an HF repo (MATAN_HF_REPO, defaults to the recently
+# fine-tuned model) -> local matan_model. Same architecture (491 styles / 29
+# vocab), so any of these load into the UNet below.
+MATAN_CKPT = os.environ.get("MATAN_CKPT")
+MATAN_HF_REPO = os.environ.get("MATAN_HF_REPO", "cyttic/diffusionpen-matan-ft")
+
+
+def resolve_ckpt():
+    if MATAN_CKPT and os.path.isfile(MATAN_CKPT):
+        return MATAN_CKPT, MATAN_CKPT
+    if MATAN_HF_REPO:
+        from huggingface_hub import hf_hub_download
+        return hf_hub_download(MATAN_HF_REPO, "ema_ckpt.pt"), MATAN_HF_REPO
+    local = os.path.join(SAVE_PATH, "models", "ema_ckpt.pt")
+    return local, local
 
 
 class Generator:
@@ -63,11 +80,19 @@ class Generator:
                               vocab_size=self.vocab_size, text_encoder=te,
                               args=SimpleNamespace(interpolation=False, mix_rate=None))
         self.unet = DataParallel(self.unet, device_ids=[0]).to(DEV)
-        self.unet.load_state_dict(torch.load(os.path.join(SAVE_PATH, "models", "ema_ckpt.pt"),
-                                             map_location=DEV, weights_only=False))
+        ckpt_path, ckpt_src = resolve_ckpt()
+        self.unet.load_state_dict(torch.load(ckpt_path, map_location=DEV, weights_only=False))
         self.unet.eval()
+        print(f"[pipeline] checkpoint: {ckpt_src}")
         self.vae = DataParallel(AutoencoderKL.from_pretrained(SD, subfolder="vae"), device_ids=[0]).to(DEV).eval()
-        self.sched = DPMSolverMultistepScheduler.from_pretrained(SD, subfolder="scheduler")
+        # samplers the UI can pick; per-sampler default steps for good quality
+        ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler")
+        self.schedulers = {
+            "dpm": DPMSolverMultistepScheduler.from_pretrained(SD, subfolder="scheduler"),
+            "ddim": ddim,
+            "ddim100": ddim,   # same solver, more steps (best CER in the sweep)
+        }
+        self.default_steps = {"dpm": 15, "ddim": 50, "ddim100": 100}
         fe = ImageEncoder(model_name="mobilenetv2_100", num_classes=0, pretrained=True, trainable=True)
         st = torch.load(STYLE_PATH, map_location=DEV, weights_only=False); md = fe.state_dict()
         fe.load_state_dict({**md, **{k: v for k, v in st.items() if k in md and md[k].shape == v.shape}})
@@ -93,7 +118,7 @@ class Generator:
                 self._feat_cache[s] = self.fe(refs).detach()
         return self._feat_cache[s]
 
-    def _gen_candidates(self, word, sfeat, s, k, steps, batch=8):
+    def _gen_candidates(self, word, sfeat, s, k, steps, sched, batch=8):
         """Generate k candidates in sub-batches so peak VRAM is bounded by `batch`."""
         out = []
         for start in range(0, k, batch):
@@ -104,12 +129,12 @@ class Generator:
                 tf = self.tok([word] * kk, padding="max_length", truncation=True,
                               return_tensors="pt", max_length=40).to(DEV)
                 x = torch.randn((kk, 4, IMG[0] // 8, IMG[1] // 8)).to(DEV)
-                self.sched.set_timesteps(steps)
-                for t in self.sched.timesteps:
+                sched.set_timesteps(steps)
+                for t in sched.timesteps:
                     tt = (torch.ones(kk) * t.item()).long().to(DEV)
                     resid = self.unet(x, tt, tf, labels, original_images=None,
                                       mix_rate=None, style_extractor=sfeat_b)
-                    x = self.sched.step(resid, t, x).prev_sample
+                    x = sched.step(resid, t, x).prev_sample
                 latents = 1 / 0.18215 * x
                 imgs = self.vae.module.decode(latents).sample
                 imgs = (imgs / 2 + 0.5).clamp(0, 1).cpu()
@@ -154,18 +179,21 @@ class Generator:
 
     # ---- public API ----
     def generate(self, text, style=None, candidates=5, aberration=False,
-                 normalize=True, steps=20):
+                 normalize=True, sampler="dpm", steps=None):
         words = text.split()
         if not words:
             raise ValueError("empty text")
         candidates = max(1, min(int(candidates), 50))
+        sampler = sampler if sampler in self.schedulers else "dpm"
+        sched = self.schedulers[sampler]
+        steps = int(steps) if steps else self.default_steps[sampler]
         s = random.randint(0, self.style_classes - 1) if style is None else \
             max(0, min(int(style), self.style_classes - 1))
         try:
             sfeat = self._style_feat(s)
             chosen, cers = [], []
             for w in words:
-                imgs = self._gen_candidates(w, sfeat, s, candidates, steps)
+                imgs = self._gen_candidates(w, sfeat, s, candidates, steps, sched)
                 if candidates == 1:
                     chosen.append(imgs[0]); cers.append(None)
                 else:
@@ -179,6 +207,7 @@ class Generator:
             if any(c is not None for c in cers):
                 vals = [c for c in cers if c is not None]
                 mean_cer = sum(vals) / len(vals)
-            return {"image": line, "style": s, "words": len(words), "mean_cer": mean_cer}
+            return {"image": line, "style": s, "words": len(words), "mean_cer": mean_cer,
+                    "sampler": sampler, "steps": steps}
         finally:
             torch.cuda.empty_cache()
