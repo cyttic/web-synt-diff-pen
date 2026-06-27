@@ -249,7 +249,7 @@
       <!-- toggles -->
       <div class="field">
         <label class="toggle">
-          <input type="checkbox" id="aberration">
+          <input type="checkbox" id="aberration" checked>
           <span class="sw"></span>
           <span class="t-text">
             <span class="t-name">Aberration robustness</span>
@@ -345,7 +345,7 @@ async function checkHealth(){
       txt.textContent = 'loading model…';
     } else {
       st.classList.add('online');
-      txt.textContent = 'ready · ' + d.style_count + ' writers';
+      txt.textContent = 'ready · ' + d.style_count + ' styles';
       if (!styleMaxSet){
         const max = d.style_count - 1;
         $('style').max = max;
