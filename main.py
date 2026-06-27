@@ -39,6 +39,18 @@ async def info():
         return {"style_count": 0}
 
 
+@app.get("/api/health")
+async def health():
+    """Is the GPU model server reachable through the tunnel? Drives the UI indicator."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            d = (await c.get(f"{MODEL_SERVER}/health")).json()
+        return {"connected": True, "status": d.get("status", "ok"),
+                "style_count": d.get("style_count", 0)}
+    except Exception:
+        return {"connected": False, "status": "offline", "style_count": 0}
+
+
 @app.post("/api/generate")
 async def generate(req: Request):
     """Forward the generation request to the model server and relay its response."""

@@ -51,6 +51,9 @@
           background:var(--sheet);border:1px solid var(--line);border-radius:999px;padding:8px 14px;white-space:nowrap;}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 0 rgba(31,111,92,.45);}
   .status.online .dot{background:var(--accent);animation:pulse 2.4s ease-out infinite;}
+  .status.loading .dot{background:#c8911f;animation:pulse 1.6s ease-out infinite;}
+  .status.offline{color:var(--danger);}
+  .status.offline .dot{background:var(--danger);animation:none;}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,111,92,.4);}70%{box-shadow:0 0 0 7px rgba(31,111,92,0);}100%{box-shadow:0 0 0 0 rgba(31,111,92,0);}}
 
   /* ---------- layout ---------- */
@@ -327,19 +330,37 @@ $('sampler').querySelectorAll('button').forEach(b => {
   });
 });
 
-/* ---- info / status ---- */
-fetch('/api/info').then(r => r.json()).then(d => {
-  if (d.style_count){
-    const max = d.style_count - 1;
-    $('style').max = max;
-    $('styleRange').textContent = '0 … ' + max;
-    $('status').classList.add('online');
-    $('statusText').textContent = 'ready · ' + d.style_count + ' writers';
-  } else {
-    $('status').classList.add('online');
-    $('statusText').textContent = 'ready';
+/* ---- status: poll the backend through the tunnel ---- */
+let styleMaxSet = false;
+async function checkHealth(){
+  const st = $('status'), txt = $('statusText');
+  try {
+    const d = await (await fetch('/api/health', {cache:'no-store'})).json();
+    st.classList.remove('online','offline','loading');
+    if (!d.connected){
+      st.classList.add('offline');
+      txt.textContent = 'backend offline · start the tunnel';
+    } else if (d.status === 'loading' || !d.style_count){
+      st.classList.add('loading');
+      txt.textContent = 'loading model…';
+    } else {
+      st.classList.add('online');
+      txt.textContent = 'ready · ' + d.style_count + ' writers';
+      if (!styleMaxSet){
+        const max = d.style_count - 1;
+        $('style').max = max;
+        $('styleRange').textContent = '0 … ' + max;
+        styleMaxSet = true;
+      }
+    }
+  } catch (e) {
+    st.classList.remove('online','loading');
+    st.classList.add('offline');
+    txt.textContent = 'backend offline';
   }
-}).catch(() => { $('statusText').textContent = 'model loading…'; });
+}
+checkHealth();
+setInterval(checkHealth, 7000);
 
 /* ---- validation ---- */
 function validateInput(text){
