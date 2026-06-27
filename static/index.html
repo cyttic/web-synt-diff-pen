@@ -4,128 +4,395 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Synth DiffusionPen — Hebrew Handwriting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Assistant:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0f1115; --panel:#1a1d24; --line:#2a2f3a; --fg:#e7e9ee; --muted:#9aa3b2; --accent:#5b8cff; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-         background:var(--bg); color:var(--fg); }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px 60px; }
-  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
-  .sub { color:var(--muted); font-size: 13px; margin-bottom: 22px; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:18px; }
-  label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
-  textarea { width:100%; min-height:70px; resize:vertical; direction:rtl; text-align:right;
-             font-size:22px; padding:12px; border-radius:8px; border:1px solid var(--line);
-             background:#11141a; color:var(--fg); }
-  .settings { display:grid; grid-template-columns: repeat(2, 1fr); gap:16px; margin-top:16px; }
-  .field input[type=number], .field input[type=range] { width:100%; }
-  input[type=number] { background:#11141a; color:var(--fg); border:1px solid var(--line);
-                       border-radius:6px; padding:7px 9px; font-size:14px; }
-  .row { display:flex; align-items:center; gap:10px; }
-  .chk { display:flex; align-items:center; gap:8px; font-size:14px; color:var(--fg); }
-  .hint { font-size:11.5px; color:var(--muted); margin-top:4px; }
-  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:11px 20px;
-           font-size:15px; font-weight:600; cursor:pointer; margin-top:18px; }
-  button:disabled { opacity:.5; cursor:default; }
-  .output { min-height:120px; display:flex; align-items:center; justify-content:center;
-            background:#fafafa; border-radius:8px; padding:18px; overflow:auto; }
-  .output img { max-width:100%; image-rendering: -webkit-optimize-contrast; }
-  .meta { font-size:12.5px; color:var(--muted); margin-top:10px; }
-  .err { color:#ff6b6b; font-size:13px; margin-top:10px; }
-  .spin { width:22px; height:22px; border:3px solid var(--line); border-top-color:var(--accent);
-          border-radius:50%; animation:spin 0.8s linear infinite; }
-  @keyframes spin { to { transform:rotate(360deg); } }
+  :root{
+    --paper:#f4f1e9;
+    --paper-2:#efeadd;
+    --sheet:#ffffff;
+    --ink:#1d1b15;
+    --ink-soft:#3b3830;
+    --muted:#7a766c;
+    --faint:#a8a397;
+    --line:#e4dfd2;
+    --line-2:#ece7da;
+    --accent:#1f6f5c;
+    --accent-d:#185748;
+    --accent-tint:#e7f0ec;
+    --danger:#b4451f;
+    --radius:14px;
+    --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'IBM Plex Sans',system-ui,-apple-system,Segoe UI,sans-serif;
+    --hebrew:'Assistant','IBM Plex Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;font-family:var(--sans);color:var(--ink);
+    background:var(--paper);
+    background-image:
+      radial-gradient(1200px 600px at 85% -10%, var(--paper-2), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, var(--paper-2), transparent 55%);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.45;
+  }
+  ::selection{background:var(--accent-tint);}
+  .wrap{max-width:1140px;margin:0 auto;padding:30px 26px 64px;}
+
+  /* ---------- header ---------- */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:26px;}
+  .brand-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:8px;}
+  h1{font-size:30px;line-height:1.1;font-weight:600;margin:0;letter-spacing:-.01em;}
+  h1 .thin{color:var(--muted);font-weight:400;}
+  .lede{color:var(--muted);font-size:14px;margin-top:8px;max-width:46ch;}
+  .status{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+          background:var(--sheet);border:1px solid var(--line);border-radius:999px;padding:8px 14px;white-space:nowrap;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 0 rgba(31,111,92,.45);}
+  .status.online .dot{background:var(--accent);animation:pulse 2.4s ease-out infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,111,92,.4);}70%{box-shadow:0 0 0 7px rgba(31,111,92,0);}100%{box-shadow:0 0 0 0 rgba(31,111,92,0);}}
+
+  /* ---------- layout ---------- */
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:22px;align-items:start;}
+  @media(max-width:920px){.grid{grid-template-columns:1fr;}}
+
+  .panel{background:var(--sheet);border:1px solid var(--line);border-radius:var(--radius);
+         box-shadow:0 1px 2px rgba(40,34,20,.03),0 8px 24px -16px rgba(40,34,20,.18);}
+  .panel-pad{padding:22px 22px 24px;}
+
+  .sec-label{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:600;
+             display:flex;align-items:center;gap:10px;margin:0 0 14px;}
+  .sec-label::after{content:"";flex:1;height:1px;background:var(--line-2);}
+
+  /* ---------- input ---------- */
+  .ta-shell{position:relative;border:1px solid var(--line);border-radius:10px;background:#fcfbf7;transition:border-color .15s,box-shadow .15s;}
+  .ta-shell:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);}
+  textarea{display:block;width:100%;min-height:118px;resize:vertical;border:0;background:transparent;outline:none;
+           direction:rtl;text-align:right;font-family:var(--hebrew);font-size:25px;line-height:1.6;color:var(--ink);
+           padding:15px 16px 34px;border-radius:10px;}
+  textarea::placeholder{color:var(--faint);}
+  .ta-foot{position:absolute;left:12px;bottom:9px;font-family:var(--mono);font-size:11px;color:var(--faint);
+           display:flex;gap:12px;align-items:center;pointer-events:none;}
+  .ta-foot .over{color:var(--danger);}
+
+  hr.div{border:0;border-top:1px solid var(--line-2);margin:22px 0;}
+
+  /* ---------- fields ---------- */
+  .field{margin-bottom:20px;}
+  .field:last-child{margin-bottom:0;}
+  .f-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px;}
+  .f-name{font-size:13.5px;font-weight:600;color:var(--ink-soft);}
+  .f-val{font-family:var(--mono);font-size:12px;color:var(--accent-d);font-weight:600;}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:7px;line-height:1.4;}
+
+  .num{font-family:var(--mono);font-size:14px;color:var(--ink);background:#fcfbf7;border:1px solid var(--line);
+       border-radius:8px;padding:8px 10px;width:88px;text-align:center;outline:none;transition:border-color .15s,box-shadow .15s;}
+  .num:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-tint);}
+  .num:disabled{opacity:.45;}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+
+  /* range */
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;background:var(--line);outline:none;margin:6px 0;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:17px;height:17px;border-radius:50%;
+       background:var(--accent);border:2px solid #fff;box-shadow:0 1px 4px rgba(24,87,72,.4);cursor:pointer;transition:transform .1s;}
+  input[type=range]::-webkit-slider-thumb:active{transform:scale(1.15);}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #fff;cursor:pointer;}
+
+  /* segmented control */
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--paper-2);border:1px solid var(--line);
+       border-radius:9px;padding:4px;}
+  .seg button{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--ink-soft);background:transparent;border:0;
+       padding:8px 6px;border-radius:6px;cursor:pointer;transition:all .14s;line-height:1.2;}
+  .seg button small{display:block;font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:2px;font-weight:500;}
+  .seg button:hover{color:var(--ink);}
+  .seg button.on{background:var(--sheet);color:var(--accent-d);box-shadow:0 1px 3px rgba(40,34,20,.12);}
+  .seg button.on small{color:var(--accent);}
+
+  /* toggle switch */
+  .toggle{display:flex;align-items:flex-start;gap:13px;cursor:pointer;user-select:none;}
+  .sw{flex:0 0 auto;position:relative;width:40px;height:23px;border-radius:999px;background:var(--line);transition:background .18s;margin-top:1px;}
+  .sw::after{content:"";position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:#fff;
+       box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .18s;}
+  .toggle input{position:absolute;opacity:0;width:0;height:0;}
+  .toggle input:checked + .sw{background:var(--accent);}
+  .toggle input:checked + .sw::after{transform:translateX(17px);}
+  .toggle input:focus-visible + .sw{box-shadow:0 0 0 3px var(--accent-tint);}
+  .t-text .t-name{font-size:13.5px;font-weight:600;color:var(--ink-soft);}
+  .t-text .hint{margin-top:3px;}
+
+  /* generate */
+  .go{width:100%;margin-top:24px;display:inline-flex;align-items:center;justify-content:center;gap:10px;
+      background:var(--accent);color:#fff;border:0;border-radius:10px;padding:14px 20px;font-family:var(--sans);
+      font-size:15px;font-weight:600;cursor:pointer;letter-spacing:.01em;transition:background .15s,transform .05s;
+      box-shadow:0 6px 16px -8px rgba(24,87,72,.7);}
+  .go:hover{background:var(--accent-d);}
+  .go:active{transform:translateY(1px);}
+  .go:disabled{opacity:.55;cursor:default;box-shadow:none;}
+  .go kbd{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.18);border-radius:5px;padding:2px 6px;font-weight:500;}
+
+  /* ---------- output ---------- */
+  .out-panel{position:sticky;top:24px;}
+  .out-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
+  .meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;text-align:right;}
+  .meta b{color:var(--accent-d);font-weight:600;}
+  .meta .sep{color:var(--line);}
+
+  .sheet{margin-top:14px;border:1px solid var(--line);border-radius:11px;background:
+      linear-gradient(#fff,#fff) padding-box,
+      repeating-linear-gradient(0deg,transparent,transparent 43px,#eef1ee 43px,#eef1ee 44px);
+      min-height:340px;display:flex;align-items:center;justify-content:center;padding:26px;overflow:auto;position:relative;}
+  .sheet::before{content:"";position:absolute;top:0;bottom:0;right:34px;width:1px;background:rgba(180,69,31,.12);}
+
+  /* empty state */
+  .empty{text-align:center;color:var(--faint);}
+  .empty .pen{width:40px;height:40px;margin:0 auto 14px;opacity:.5;}
+  .empty .msg{font-family:var(--mono);font-size:12px;letter-spacing:.04em;}
+  .empty .sub{font-size:12px;color:var(--muted);margin-top:6px;}
+
+  /* loading state */
+  .load{text-align:center;width:100%;max-width:360px;}
+  .load .bar{height:3px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-bottom:18px;}
+  .load .bar i{display:block;height:100%;width:40%;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),transparent);
+       animation:sweep 1.25s ease-in-out infinite;}
+  @keyframes sweep{0%{transform:translateX(-120%);}100%{transform:translateX(320%);}}
+  .load .msg{font-family:var(--mono);font-size:12px;color:var(--ink-soft);}
+  .load .timer{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:6px;}
+
+  /* result */
+  .result{text-align:center;animation:fade .4s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  .result img{max-width:100%;image-rendering:-webkit-optimize-contrast;}
+  .actions{display:flex;gap:8px;justify-content:center;margin-top:16px;}
+  .ghost{font-family:var(--mono);font-size:11.5px;font-weight:500;color:var(--ink-soft);background:var(--sheet);
+      border:1px solid var(--line);border-radius:8px;padding:7px 13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .14s;}
+  .ghost:hover{border-color:var(--accent);color:var(--accent-d);}
+
+  .err{display:none;margin-top:14px;font-size:13px;color:var(--danger);background:rgba(180,69,31,.07);
+       border:1px solid rgba(180,69,31,.22);border-radius:9px;padding:11px 13px;font-family:var(--mono);line-height:1.45;}
+  .err.show{display:block;}
+
+  .foot{margin-top:30px;font-family:var(--mono);font-size:11px;color:var(--faint);text-align:center;}
+  .foot a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line);}
+  .foot a:hover{color:var(--accent-d);}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>✍️ Synth DiffusionPen — Hebrew Handwriting</h1>
-  <div class="sub">Type Hebrew text, pick a writer style, and render it as synthetic handwriting.</div>
 
-  <div class="card">
-    <label for="text">Input text (Hebrew)</label>
-    <textarea id="text" placeholder="הקלד טקסט כאן...">השרים התלוננו בקבינט על ההגבלות בלבנון</textarea>
-
-    <div class="settings">
-      <div class="field">
-        <label>Writer style</label>
-        <div class="row">
-          <input type="number" id="style" min="0" value="73" style="width:110px">
-          <label class="chk"><input type="checkbox" id="randStyle"> random</label>
-        </div>
-        <div class="hint">0 … <span id="maxStyle">?</span> — each id is a different handwriting</div>
-      </div>
-
-      <div class="field">
-        <label>Candidates per word (best-of-N)</label>
-        <input type="number" id="candidates" min="1" max="50" value="5" style="width:110px">
-        <div class="hint">1–50 drafts per word; keep the one the HTR reads best</div>
-      </div>
-
-      <div class="field">
-        <label>Sampler</label>
-        <select id="sampler" style="background:#11141a;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:14px;width:150px">
-          <option value="dpm" selected>DPM (15 steps, fast)</option>
-          <option value="ddim">DDIM (50 steps, slow)</option>
-          <option value="ddim100">DDIM (100 steps, best)</option>
-        </select>
-        <div class="hint">diffusion solver; DPM is ~2.5× faster, same/better quality</div>
-      </div>
-
-      <div class="field">
-        <label>Options</label>
-        <label class="chk"><input type="checkbox" id="aberration">
-          Aberration robustness (test-time augmentation)</label>
-        <div class="hint">score each draft under blur / rotation / noise, keep the most robust</div>
-      </div>
-
-      <div class="field">
-        <label>&nbsp;</label>
-        <label class="chk"><input type="checkbox" id="normalize" checked>
-          Normalize letter width</label>
-        <div class="hint">equalize per-character size so short ≠ stretched</div>
-      </div>
+  <header>
+    <div>
+      <div class="brand-eyebrow">Synth · DiffusionPen</div>
+      <h1>Hebrew Handwriting <span class="thin">Synthesizer</span></h1>
+      <p class="lede">Type Hebrew, choose a writer, and render it as synthetic handwriting — a diffusion model drafts each word and an HTR reader keeps the cleanest one.</p>
     </div>
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">connecting…</span></div>
+  </header>
 
-    <button id="go">Generate</button>
+  <div class="grid">
+
+    <!-- ============ CONTROLS ============ -->
+    <section class="panel panel-pad">
+      <div class="sec-label">Input</div>
+
+      <div class="ta-shell">
+        <textarea id="text" placeholder="הקלד טקסט עברי כאן…" spellcheck="false">השרים התלוננו בקבינט על ההגבלות בלבנון</textarea>
+        <div class="ta-foot"><span id="wordCount">0 words</span><span id="charCount">0 chars</span></div>
+      </div>
+
+      <hr class="div">
+      <div class="sec-label">Parameters</div>
+
+      <!-- writer style -->
+      <div class="field">
+        <div class="f-head">
+          <span class="f-name">Writer style</span>
+          <span class="f-val" id="styleVal">#73</span>
+        </div>
+        <div class="row">
+          <input type="number" class="num" id="style" min="0" value="73">
+          <label class="toggle" style="gap:9px">
+            <input type="checkbox" id="randStyle">
+            <span class="sw"></span>
+            <span class="t-text"><span class="t-name" style="font-size:13px">random</span></span>
+          </label>
+        </div>
+        <div class="hint">Writer id <span id="styleRange">0 … ?</span> — each is a distinct handwriting. Toggle random for a surprise writer.</div>
+      </div>
+
+      <!-- candidates -->
+      <div class="field">
+        <div class="f-head">
+          <span class="f-name">Candidates per word</span>
+          <span class="f-val" id="candVal">5</span>
+        </div>
+        <input type="range" id="candidates" min="1" max="50" value="5">
+        <div class="hint">Best-of-N drafts generated per word; the HTR keeps the most readable. Higher = cleaner but slower.</div>
+      </div>
+
+      <!-- sampler -->
+      <div class="field">
+        <div class="f-head"><span class="f-name">Sampler</span></div>
+        <div class="seg" id="sampler" role="tablist">
+          <button data-v="dpm" class="on">DPM<small>15 · fast</small></button>
+          <button data-v="ddim">DDIM<small>50 · slow</small></button>
+          <button data-v="ddim100">DDIM<small>100 · best</small></button>
+        </div>
+        <div class="hint">Diffusion solver. DPM is ~2.5× faster at similar quality.</div>
+      </div>
+
+      <hr class="div">
+
+      <!-- toggles -->
+      <div class="field">
+        <label class="toggle">
+          <input type="checkbox" id="aberration">
+          <span class="sw"></span>
+          <span class="t-text">
+            <span class="t-name">Aberration robustness</span>
+            <div class="hint">Score each draft under blur / rotation / noise and keep the most robust (test-time augmentation).</div>
+          </span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="toggle">
+          <input type="checkbox" id="normalize" checked>
+          <span class="sw"></span>
+          <span class="t-text">
+            <span class="t-name">Normalize letter width</span>
+            <div class="hint">Equalize per-character width so a short word isn't stretched to a long word's size.</div>
+          </span>
+        </label>
+      </div>
+
+      <button class="go" id="go"><span id="goLabel">Generate handwriting</span></button>
+    </section>
+
+    <!-- ============ OUTPUT ============ -->
+    <section class="panel panel-pad out-panel">
+      <div class="out-head">
+        <div class="sec-label" style="margin:0">Output</div>
+        <div class="meta" id="meta"></div>
+      </div>
+
+      <div class="sheet" id="sheet">
+        <div class="empty" id="emptyState">
+          <svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="M15 5l3 3"/></svg>
+          <div class="msg">— rendered handwriting appears here —</div>
+          <div class="sub">enter Hebrew text and press Generate</div>
+        </div>
+      </div>
+
+      <div class="err" id="err"></div>
+    </section>
+
   </div>
 
-  <div class="card">
-    <label>Rendered handwriting</label>
-    <div class="output" id="output"><span style="color:#999">— output appears here —</span></div>
-    <div class="meta" id="meta"></div>
-    <div class="err" id="err"></div>
-  </div>
+  <div class="foot">Synth DiffusionPen · diffusion drafting + TrOCR Hebrew selection · single-GPU, requests serialized</div>
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
+const MAX_WORDS = 14;
+let sampler = 'dpm';
+let lastImg = null;
 
-fetch('/api/info').then(r => r.json()).then(d => {
-  if (d.style_count) { $('maxStyle').textContent = d.style_count - 1; $('style').max = d.style_count - 1; }
+/* ---- live counts ---- */
+function updateCounts(){
+  const t = $('text').value.trim();
+  const words = t ? t.split(/\s+/).length : 0;
+  const chars = $('text').value.replace(/\s/g,'').length;
+  const wc = $('wordCount');
+  wc.textContent = words + (words === 1 ? ' word' : ' words');
+  wc.className = words > MAX_WORDS ? 'over' : '';
+  $('charCount').textContent = chars + ' chars';
+}
+$('text').addEventListener('input', updateCounts);
+updateCounts();
+
+/* ---- style ---- */
+function syncStyle(){ $('styleVal').textContent = $('randStyle').checked ? 'random' : '#' + ($('style').value || 0); }
+$('style').addEventListener('input', syncStyle);
+$('randStyle').addEventListener('change', e => { $('style').disabled = e.target.checked; syncStyle(); });
+syncStyle();
+
+/* ---- candidates ---- */
+$('candidates').addEventListener('input', e => { $('candVal').textContent = e.target.value; });
+
+/* ---- sampler segmented ---- */
+$('sampler').querySelectorAll('button').forEach(b => {
+  b.addEventListener('click', () => {
+    $('sampler').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on'); sampler = b.dataset.v;
+  });
 });
 
-$('randStyle').addEventListener('change', e => { $('style').disabled = e.target.checked; });
+/* ---- info / status ---- */
+fetch('/api/info').then(r => r.json()).then(d => {
+  if (d.style_count){
+    const max = d.style_count - 1;
+    $('style').max = max;
+    $('styleRange').textContent = '0 … ' + max;
+    $('status').classList.add('online');
+    $('statusText').textContent = 'ready · ' + d.style_count + ' writers';
+  } else {
+    $('status').classList.add('online');
+    $('statusText').textContent = 'ready';
+  }
+}).catch(() => { $('statusText').textContent = 'model loading…'; });
 
-const MAX_WORDS = 14;
-function validateInput(text) {
+/* ---- validation ---- */
+function validateInput(text){
   const t = (text || '').trim();
   if (!t) return 'Please enter some Hebrew text.';
   const words = t.split(/\s+/);
-  if (words.length > MAX_WORDS) return `Too long: ${words.length} words (max ${MAX_WORDS}).`;
-  if (!/^[֐-׿\s]+$/.test(t)) return 'Hebrew letters only — please remove non-Hebrew characters, digits or punctuation.';
-  if (!/[א-ת]/.test(t)) return 'Please enter Hebrew text.';
+  if (words.length > MAX_WORDS) return 'Too long: ' + words.length + ' words (max ' + MAX_WORDS + ').';
+  if (!/^[\u0590-\u05FF\s]+$/.test(t)) return 'Hebrew letters only — remove non-Hebrew characters, digits or punctuation.';
+  if (!/[\u05D0-\u05EA]/.test(t)) return 'Please enter Hebrew text.';
   return null;
 }
 
-$('go').addEventListener('click', async () => {
-  const btn = $('go'), out = $('output'), meta = $('meta'), err = $('err');
-  err.textContent = ''; meta.textContent = '';
+/* ---- render helpers ---- */
+function showError(msg){ const e = $('err'); e.textContent = msg; e.classList.add('show'); }
+function clearError(){ $('err').classList.remove('show'); }
 
+function showEmpty(){
+  $('sheet').innerHTML =
+    '<div class="empty"><svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="M15 5l3 3"/></svg><div class="msg">— rendered handwriting appears here —</div></div>';
+}
+
+let timerHandle = null;
+function showLoading(){
+  const t0 = performance.now();
+  $('sheet').innerHTML =
+    '<div class="load"><div class="bar"><i></i></div><div class="msg">drafting words &amp; selecting best reads…</div><div class="timer" id="timer">0.0s</div></div>';
+  timerHandle = setInterval(() => {
+    const el = $('timer'); if (el) el.textContent = ((performance.now()-t0)/1000).toFixed(1) + 's';
+  }, 100);
+}
+function stopTimer(){ if (timerHandle){ clearInterval(timerHandle); timerHandle = null; } }
+
+function showResult(d){
+  lastImg = d.image;
+  $('sheet').innerHTML =
+    '<div class="result"><img src="' + d.image + '" alt="handwriting">' +
+    '<div class="actions"><button class="ghost" id="dl">↓ download PNG</button></div></div>';
+  $('dl').addEventListener('click', () => {
+    const a = document.createElement('a'); a.href = lastImg; a.download = 'handwriting.png'; a.click();
+  });
+  let parts = ['style <b>' + d.style + '</b>', '<b>' + d.words + '</b> words'];
+  if (d.sampler) parts.push('<b>' + d.sampler + '</b>·' + d.steps);
+  if (d.mean_cer !== null && d.mean_cer !== undefined) parts.push('CER <b>' + d.mean_cer.toFixed(3) + '</b>');
+  $('meta').innerHTML = parts.join('<span class="sep"> / </span>');
+}
+
+/* ---- generate ---- */
+$('go').addEventListener('click', async () => {
+  clearError(); $('meta').innerHTML = '';
   const vmsg = validateInput($('text').value);
-  if (vmsg) { err.textContent = vmsg; return; }
+  if (vmsg){ showError(vmsg); return; }
   let cand = parseInt($('candidates').value);
-  if (!(cand >= 1 && cand <= 50)) { err.textContent = 'Candidates per word must be 1–50.'; return; }
+  if (!(cand >= 1 && cand <= 50)){ showError('Candidates per word must be 1–50.'); return; }
 
   const body = {
     text: $('text').value.trim(),
@@ -133,26 +400,31 @@ $('go').addEventListener('click', async () => {
     candidates: cand,
     aberration: $('aberration').checked,
     normalize: $('normalize').checked,
-    sampler: $('sampler').value,
+    sampler: sampler,
   };
-  btn.disabled = true; out.innerHTML = '<div class="spin"></div>';
-  try {
+
+  const btn = $('go');
+  btn.disabled = true; $('goLabel').textContent = 'Generating…';
+  showLoading();
+  try{
     const r = await fetch('/api/generate', {
-      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
     });
-    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
     const d = await r.json();
-    out.innerHTML = '<img src="' + d.image + '" alt="handwriting">';
-    let m = 'style ' + d.style + ' · ' + d.words + ' words';
-    if (d.sampler) m += ' · ' + d.sampler + '-' + d.steps;
-    if (d.mean_cer !== null && d.mean_cer !== undefined) m += ' · mean CER ' + d.mean_cer.toFixed(3);
-    meta.textContent = m;
-  } catch (e) {
-    out.innerHTML = '<span style="color:#999">—</span>';
-    err.textContent = 'Error: ' + e.message;
+    stopTimer();
+    showResult(d);
+  } catch(e){
+    stopTimer(); showEmpty();
+    showError('Error: ' + e.message);
   } finally {
-    btn.disabled = false;
+    btn.disabled = false; $('goLabel').textContent = 'Generate handwriting';
   }
+});
+
+/* Cmd/Ctrl+Enter to generate */
+$('text').addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter'){ e.preventDefault(); $('go').click(); }
 });
 </script>
 </body>
