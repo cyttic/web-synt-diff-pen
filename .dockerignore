@@ -1,0 +1,20 @@
+# backend / GPU code — never goes in the thin frontend image
+pipeline.py
+model_server.py
+requirements-model.txt
+README-remote-backend.md
+
+# vcs / python / local
+.git
+.gitignore
+.github/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# misc
+*.zip
+*.tar.gz
+.DS_Store

@@ -1,0 +1,7 @@
+# Model server (GPU notebook) — the web layer only.
+# The heavy ML deps (torch, diffusers, transformers, timm, einops, pillow, numpy,
+# torchvision, scikit-image, opencv, omegaconf) come from the existing ML env
+# (e.g. /mnt/ssd2/cyttic/ml_env) shared with the test-diff-pen pipeline.
+fastapi
+uvicorn[standard]
+pydantic

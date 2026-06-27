@@ -1,0 +1,62 @@
+name: build-and-deploy
+
+# Build the thin frontend image -> push to Docker Hub -> deploy to the Azure VM.
+# The GPU backend (model_server.py) runs on the notebook and is reached by the
+# container through a reverse SSH tunnel on 127.0.0.1:8001.
+on:
+  push:
+    branches: [ main, remote-backend ]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build image & push to Docker Hub
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/web-synt-diff-pen:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/web-synt-diff-pen:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-azure-vm:
+    name: Deploy to Azure VM
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull image & restart container over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script: |
+            set -e
+            IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/web-synt-diff-pen:${{ github.sha }}"
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+            docker pull "$IMAGE"
+            docker stop web-synt-diff-pen || true
+            docker rm   web-synt-diff-pen || true
+            # host network so the container can reach the reverse tunnel on 127.0.0.1:8001
+            docker run -d --name web-synt-diff-pen --restart unless-stopped \
+              --network host \
+              -e MODEL_SERVER_URL=http://127.0.0.1:8001 \
+              "$IMAGE" uvicorn main:app --host 0.0.0.0 --port 80
+            docker image prune -f
