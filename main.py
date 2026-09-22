@@ -64,4 +64,17 @@ async def generate(req: Request):
     return JSONResponse(status_code=r.status_code, content=r.json())
 
 
+@app.post("/api/font_baseline")
+async def font_baseline(req: Request):
+    """Forward to the model server's /font_baseline -- pure CPU/PIL there too, but it
+    shares the model server process so it still goes through the same tunnel."""
+    body = await req.json()
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.post(f"{MODEL_SERVER}/font_baseline", json=body)
+    except Exception as e:
+        raise HTTPException(502, f"Model server unreachable (is the SSH tunnel up?): {e}")
+    return JSONResponse(status_code=r.status_code, content=r.json())
+
+
 app.mount("/static", StaticFiles(directory="static"), name="static")

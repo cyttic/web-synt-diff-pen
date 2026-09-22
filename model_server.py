@@ -2,10 +2,12 @@
 Model inference server — runs on the GPU notebook (where there is a GPU + RAM).
 
 Exposes a tiny API the Azure frontend calls (through the reverse SSH tunnel):
-    GET  /health    -> {"status": "ok", "style_count": N}
-    GET  /info      -> {"style_count": N}
-    POST /generate  -> JSON {text, style?, candidates, aberration, normalize, sampler}
-                       -> {image (base64 png), style, words, mean_nll, sampler, steps}
+    GET  /health       -> {"status": "ok", "style_count": N}
+    GET  /info         -> {"style_count": N}
+    POST /generate     -> JSON {text, style?, candidates, aberration, normalize, sampler, vendi}
+                          -> {image (base64 png), style, words, mean_nll, sampler, steps, vendi}
+    POST /font_baseline -> JSON {text, style, normalize, font_jitter, candidates, vendi}
+                          -> {image (base64 png), style, font, jitter, vendi}
 
 GPU work is serialized with a lock (single device, models not thread-safe).
 
@@ -20,7 +22,8 @@ import threading
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from pipeline import Generator
+import font_baseline
+from pipeline import Generator, vendi as vendi_score
 
 MAX_WORDS = 14
 MAX_CANDIDATES = 50
@@ -74,6 +77,8 @@ class GenReq(BaseModel):
     aberration: bool = False
     normalize: bool = True
     sampler: str = "dpm"
+    font_jitter: bool = True   # font_baseline only: per-glyph rotation/scale/baseline jitter on/off
+    vendi: bool = False        # score diversity across the `candidates`-size pool (extra compute)
 
 
 @app.get("/health")
@@ -104,7 +109,8 @@ def generate(req: GenReq):
         try:
             out = gen.generate(text=req.text, style=req.style,
                                candidates=req.candidates, aberration=req.aberration,
-                               normalize=req.normalize, sampler=req.sampler)
+                               normalize=req.normalize, sampler=req.sampler,
+                               diversity=req.vendi)
         except Exception as e:
             raise HTTPException(500, f"generation failed: {e}")
     buf = io.BytesIO()
@@ -112,4 +118,44 @@ def generate(req: GenReq):
     b64 = base64.b64encode(buf.getvalue()).decode()
     return {"image": "data:image/png;base64," + b64,
             "style": out["style"], "words": out["words"], "mean_nll": out["mean_nll"],
-            "sampler": out["sampler"], "steps": out["steps"]}
+            "sampler": out["sampler"], "steps": out["steps"], "vendi": out["vendi"]}
+
+
+@app.post("/font_baseline")
+def font_baseline_endpoint(req: GenReq):
+    """Same deterministic-font comparison render as app.py's /api/font_baseline -- pure
+    CPU/PIL, runs fine on the GPU notebook alongside /generate. req.vendi additionally
+    embeds through the resident HTR encoder, so that step takes _gpu_lock."""
+    req.text = normalize_text(req.text)
+    msg = validate_text(req.text)
+    if msg:
+        raise HTTPException(400, msg)
+    if req.style is None:
+        raise HTTPException(400, "style is required for the font baseline.")
+    if gen is not None and not 0 <= req.style < gen.style_classes:
+        raise HTTPException(400, f"Writer style must be 0–{gen.style_classes - 1}.")
+    jitter = font_baseline.JITTER if req.font_jitter else 0.0
+    try:
+        img, font_name = font_baseline.render_line(req.text, req.style, normalize_width=req.normalize,
+                                                    jitter=jitter)
+        vs = None
+        if req.vendi:
+            n = max(1, min(int(req.candidates), MAX_CANDIDATES))
+            pool = [im for w in req.text.split()
+                    for im in font_baseline.render_word_variants(w, req.style, n, jitter=jitter)]
+            if len(pool) >= 2:
+                if gen is None:
+                    raise HTTPException(503, "model still loading")
+                with _gpu_lock:
+                    vs = vendi_score(gen.embed(pool))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"font baseline render failed: {e}")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return {"image": "data:image/png;base64," + b64, "style": req.style, "font": font_name,
+            "jitter": req.font_jitter, "vendi": vs}
