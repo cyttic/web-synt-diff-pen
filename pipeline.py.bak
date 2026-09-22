@@ -12,10 +12,8 @@ with the CLI experiments instead of duplicating them.
 import os
 # must be set before torch initializes the CUDA caching allocator
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-import re, sys, json, random
+import sys, json, random
 from types import SimpleNamespace
-import numpy as np
-from PIL import Image
 import torch
 import torchvision
 from torch.nn import DataParallel
@@ -31,61 +29,12 @@ sys.path.insert(0, HTR_REPO)
 from unet import UNetModel
 from feature_extractor import ImageEncoder
 import generate_styled_sheet as G   # load_ref_images, augment_views, stitch_rtl, normalize_widths, cer
-import font_baseline as FB          # render_glyphs -- deterministic-font fallback for punctuation
 
-# DiffusionPen's training corpus (LLMGen2 words + digits, build_word_ds27.py) never
-# contained punctuation, so asking it to draw a token like "שלום," feeds the comma
-# straight into the CanineTokenizer text conditioning as if it were part of the word --
-# a mark it has literally never seen rendered. Instead, split each whitespace token into
-# Hebrew-letter/digit runs (diffusion draws these, unchanged) and punctuation runs (the
-# same deterministic font pipeline font_baseline.py uses draws these -- those TTFs DO
-# have real glyphs for the app's whole punctuation whitelist, verified against
-# participant_01.ttf), then glue the pieces back together right-to-left before the usual
-# inter-word stitching.
-_CORE = re.compile(r"[א-ת0-9]")
-
-
-def _segment_token(tok):
-    """One whitespace token -> ordered [(kind, text), ...] runs, kind in {'word','punct'}."""
-    segs, cur_kind, cur = [], None, []
-    for ch in tok:
-        kind = "word" if _CORE.match(ch) else "punct"
-        if kind != cur_kind and cur:
-            segs.append((cur_kind, "".join(cur))); cur = []
-        cur_kind = kind
-        cur.append(ch)
-    if cur:
-        segs.append((cur_kind, "".join(cur)))
-    return segs
-
-
-def _glue_rtl(imgs, pad=3):
-    """Tight horizontal concat of same-height crops, right-to-left: the FIRST image in
-    `imgs` (reading/logical order) ends up RIGHTMOST -- same placement convention
-    word_render_spaced.render_word() uses for glyphs within one word."""
-    if len(imgs) == 1:
-        return imgs[0]
-    h = imgs[0].height
-    total_w = sum(im.width for im in imgs) + pad * (len(imgs) - 1)
-    cv = Image.new("RGB", (total_w, h), "white")
-    x = total_w
-    for im in imgs:
-        x -= im.width
-        cv.paste(im, (x, 0))
-        x -= pad
-    return cv
-
-# MATAN_DIR / MATAN_SPLIT let a different style-ref tree + split file be swapped
-# in without touching the real matan_clean data (same pattern as MATAN_CKPT /
-# MATAN_HF_REPO below). Layout must match: character_classes.json,
-# writers_dict_train.json, words/<writer>/*.png, splits_words/<MATAN_SPLIT>
-# with lines "relpath,writer,text".
-MATAN = os.environ.get("MATAN_DIR", os.path.join(SRC, "matan_clean"))
-MATAN_SPLIT = os.environ.get("MATAN_SPLIT", "matan_train.txt")
+MATAN = os.path.join(SRC, "matan_clean")
 SAVE_PATH = os.path.join(SRC, "matan_model")
 STYLE_PATH = os.path.join(SRC, "style_models", "iam_style_diffusionpen.pth")
 SD = os.path.join(SRC, "stable-diffusion-v1-5")
-HTR_MODEL = os.environ.get("HTR_MODEL", "cyttic/trocr-hebrew-matan-exp7")
+HTR_MODEL = os.environ.get("HTR_MODEL", "cyttic/exp10-trocr-hebrew-matan-full")
 IMG = (64, 256)
 DEV = G.DEVICE  # "cuda:0"
 
@@ -95,20 +44,6 @@ DEV = G.DEVICE  # "cuda:0"
 # vocab), so any of these load into the UNet below.
 MATAN_CKPT = os.environ.get("MATAN_CKPT")
 MATAN_HF_REPO = os.environ.get("MATAN_HF_REPO", "cyttic/diffusionpen-matan-ft")
-
-
-def vendi(X, cap=2000, seed=0):
-    """Vendi diversity score (Friedman & Dieng, 2023): exp(Shannon entropy) of the
-    eigenvalues of the cosine-similarity kernel over L2-normalized embeddings X.
-    1 = every sample identical, N = all N samples mutually orthogonal. Same
-    implementation as scorer-ocrs-dataset/compare_datasets.py's vendi(), kept as a
-    standalone copy here rather than an import so this module doesn't pick up a
-    second sys.path dependency for one six-line function."""
-    rng = np.random.default_rng(seed)
-    x = X[rng.choice(len(X), min(cap, len(X)), replace=False)]
-    K = x @ x.T / len(x)
-    ev = np.linalg.eigvalsh(K); ev = np.clip(ev, 1e-12, None); ev /= ev.sum()
-    return float(np.exp(-(ev * np.log(ev)).sum()))
 
 
 def resolve_ckpt():
@@ -133,7 +68,7 @@ class Generator:
         self.reverse_wr = {v: k for k, v in wr_dict.items()}
         self.style_classes = len(wr_dict)
         self.train_data = [l.strip().split(",") for l in
-                           open(os.path.join(MATAN, "splits_words", MATAN_SPLIT), encoding="utf-8")]
+                           open(os.path.join(MATAN, "splits_words", "matan_train.txt"), encoding="utf-8")]
         self.words_root = os.path.join(MATAN, "words")
 
         # --- diffusion stack ---
@@ -207,73 +142,44 @@ class Generator:
             del labels, sfeat_b, x, latents, imgs, resid
         return out
 
-    def _nll(self, imgs, word, batch=16):
-        """Per-image teacher-forced NLL of the KNOWN `word` -- one forward pass each,
-        no decoding. Feed the correct token history as decoder input (labels=), then
-        read off how much probability the model put on the token that was actually
-        right at each position. Lower = the image better supports exactly this text;
-        a wrong/garbled render shows up as a large NLL without ever being "read"."""
-        ids = self.htok(word, return_tensors="pt").input_ids.to(DEV)
-        out = []
-        for start in range(0, len(imgs), batch):
-            chunk = imgs[start:start + batch]
-            pv = self.proc(chunk)["pixel_values"].to(DEV, dtype=self.htr.dtype)
-            lab = ids.repeat(len(chunk), 1).clone()
-            lab[lab == self.htok.pad_token_id] = -100
-            with torch.no_grad():
-                logits = self.htr(pixel_values=pv, labels=lab).logits.float()
-            lp = torch.log_softmax(logits, dim=-1)
-            tgt = lab.clone(); mask = tgt != -100; tgt[~mask] = 0
-            tok_nll = -lp.gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
-            out.extend(((tok_nll * mask).sum(1) / mask.sum(1)).cpu().tolist())
-            del pv, lab, logits, lp, tgt, mask, tok_nll
-        return out
-
-    def embed(self, imgs, batch=16):
-        """Mean-pooled, L2-normalized ViT encoder features -- reuses the resident HTR
-        model's own encoder (same one _nll() scores with) as a generic image embedder,
-        rather than loading a second ViT just for this. Good enough for a same-request
-        relative diversity comparison; not claimed to match compare_datasets.py's
-        embedding space (that one binarizes + tiles multiple square patches per image;
-        this feeds the block-tiled crop straight through, same as the HTR reader sees)."""
-        feats = []
+    def _ocr(self, imgs, batch=16):
+        """OCR in sub-batches so a big candidate*views set can't spike VRAM."""
+        preds, confs = [], []
         for start in range(0, len(imgs), batch):
             chunk = imgs[start:start + batch]
             pv = self.proc(chunk)["pixel_values"].to(DEV, dtype=self.htr.dtype)
             with torch.no_grad():
-                h = self.htr.encoder(pixel_values=pv).last_hidden_state.float()
-            feats.append(h.mean(1).cpu().numpy())
-        E = np.concatenate(feats) if feats else np.zeros((0, 1))
-        E /= (np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
-        return E
-
-    def vendi_score(self, imgs):
-        """None when there's nothing to be diverse over (fewer than 2 images)."""
-        if len(imgs) < 2:
-            return None
-        return vendi(self.embed(imgs))
+                gen = self.htr.generate(pv, num_beams=2, max_length=48,
+                                        output_scores=True, return_dict_in_generate=True)
+            preds += self.htok.batch_decode(gen.sequences, skip_special_tokens=True)
+            ss = getattr(gen, "sequences_scores", None)
+            confs += torch.exp(ss).tolist() if ss is not None else [0.0] * len(chunk)
+            del pv, gen
+        return preds, confs
 
     def _select(self, imgs, w, aberration):
-        """Return (index, clean_nll) of the chosen candidate."""
+        """Return (index, clean_cer) of the chosen candidate."""
         if aberration:
             av = lambda im: G.augment_views(im)
             V = len(av(imgs[0]))
             flat = [v for im in imgs for _, v in av(im)]
-            vnll = self._nll(flat, w)
-            mean_nll, clean = [], []
+            vp, vc = self._ocr(flat)
+            mean_cer, mean_conf, clean = [], [], []
             for i in range(len(imgs)):
-                vals = [vnll[i * V + j] for j in range(V)]
-                mean_nll.append(sum(vals) / V)
-                clean.append(vals[0])
-            bi = min(range(len(imgs)), key=lambda i: mean_nll[i])
+                cers = [G.cer(vp[i * V + j], w) for j in range(V)]
+                mean_cer.append(sum(cers) / V)
+                mean_conf.append(sum(vc[i * V + j] for j in range(V)) / V)
+                clean.append(cers[0])
+            bi = min(range(len(imgs)), key=lambda i: (mean_cer[i], -mean_conf[i]))
             return bi, clean[bi]
-        nlls = self._nll(imgs, w)
-        bi = min(range(len(imgs)), key=lambda i: nlls[i])
-        return bi, nlls[bi]
+        preds, confs = self._ocr(imgs)
+        cers = [G.cer(preds[i], w) for i in range(len(imgs))]
+        bi = min(range(len(imgs)), key=lambda i: (cers[i], -confs[i]))
+        return bi, cers[bi]
 
     # ---- public API ----
     def generate(self, text, style=None, candidates=5, aberration=False,
-                 normalize=True, sampler="dpm", steps=None, diversity=False):
+                 normalize=True, sampler="dpm", steps=None):
         words = text.split()
         if not words:
             raise ValueError("empty text")
@@ -285,40 +191,23 @@ class Generator:
             max(0, min(int(style), self.style_classes - 1))
         try:
             sfeat = self._style_feat(s)
-            # Fixed once per call so every glued-in punctuation mark in this line looks
-            # like the same physical repetition of the writer's hand (see font_baseline
-            # .render_glyphs docstring); the per-glyph jitter/spacing itself still varies.
-            punct_font_seed = random.randint(0, 2**31 - 1)
-            chosen, kept_words, nlls = [], [], []
-            pool = [] if diversity else None   # every candidate of every word, pre-selection
-            for tok in words:
-                pieces = []
-                for kind, seg in _segment_token(tok):
-                    if kind == "word":
-                        imgs = self._gen_candidates(seg, sfeat, s, candidates, steps, sched)
-                        if diversity:
-                            pool.extend(imgs)
-                        if candidates == 1:
-                            pieces.append(imgs[0]); nlls.append(None)
-                        else:
-                            bi, n = self._select(imgs, seg, aberration)
-                            pieces.append(imgs[bi]); nlls.append(n)
-                    else:
-                        pimg = FB.render_glyphs(seg, s, font_seed=punct_font_seed)
-                        if pimg is not None:
-                            pieces.append(pimg)
-                if pieces:  # empty only if every segment's font render somehow failed
-                    chosen.append(_glue_rtl(pieces)); kept_words.append(tok)
+            chosen, cers = [], []
+            for w in words:
+                imgs = self._gen_candidates(w, sfeat, s, candidates, steps, sched)
+                if candidates == 1:
+                    chosen.append(imgs[0]); cers.append(None)
+                else:
+                    bi, c = self._select(imgs, w, aberration)
+                    chosen.append(imgs[bi]); cers.append(c)
 
             if normalize:
-                chosen = G.normalize_widths(chosen, kept_words, 64)
+                chosen = G.normalize_widths(chosen, words, 64)
             line = G.stitch_rtl(chosen, 64, space=34, pad=10)
-            mean_nll = None
-            if any(n is not None for n in nlls):
-                vals = [n for n in nlls if n is not None]
-                mean_nll = sum(vals) / len(vals)
-            vs = self.vendi_score(pool) if diversity else None
-            return {"image": line, "style": s, "words": len(words), "mean_nll": mean_nll,
-                    "sampler": sampler, "steps": steps, "vendi": vs}
+            mean_cer = None
+            if any(c is not None for c in cers):
+                vals = [c for c in cers if c is not None]
+                mean_cer = sum(vals) / len(vals)
+            return {"image": line, "style": s, "words": len(words), "mean_cer": mean_cer,
+                    "sampler": sampler, "steps": steps}
         finally:
             torch.cuda.empty_cache()

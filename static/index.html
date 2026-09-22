@@ -102,15 +102,6 @@
   input[type=range]::-webkit-slider-thumb:active{transform:scale(1.15);}
   input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid #fff;cursor:pointer;}
 
-  /* segmented control */
-  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--paper-2);border:1px solid var(--line);
-       border-radius:9px;padding:4px;}
-  .seg button{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--ink-soft);background:transparent;border:0;
-       padding:8px 6px;border-radius:6px;cursor:pointer;transition:all .14s;line-height:1.2;}
-  .seg button small{display:block;font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:2px;font-weight:500;}
-  .seg button:hover{color:var(--ink);}
-  .seg button.on{background:var(--sheet);color:var(--accent-d);box-shadow:0 1px 3px rgba(40,34,20,.12);}
-  .seg button.on small{color:var(--accent);}
 
   /* toggle switch */
   .toggle{display:flex;align-items:flex-start;gap:13px;cursor:pointer;user-select:none;}
@@ -135,7 +126,7 @@
   .go kbd{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.18);border-radius:5px;padding:2px 6px;font-weight:500;}
 
   /* ---------- output ---------- */
-  .out-panel{position:sticky;top:24px;}
+  .out-col{display:flex;flex-direction:column;gap:22px;position:sticky;top:24px;}
   .out-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;}
   .meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;text-align:right;}
   .meta b{color:var(--accent-d);font-weight:600;}
@@ -144,7 +135,7 @@
   .sheet{margin-top:14px;border:1px solid var(--line);border-radius:11px;background:
       linear-gradient(#fff,#fff) padding-box,
       repeating-linear-gradient(0deg,transparent,transparent 43px,#eef1ee 43px,#eef1ee 44px);
-      min-height:340px;display:flex;align-items:center;justify-content:center;padding:26px;overflow:auto;position:relative;}
+      min-height:190px;display:flex;align-items:center;justify-content:center;padding:22px;overflow:auto;position:relative;}
   .sheet::before{content:"";position:absolute;top:0;bottom:0;right:34px;width:1px;background:rgba(180,69,31,.12);}
 
   /* empty state */
@@ -199,7 +190,7 @@
       <div class="sec-label">Input</div>
 
       <div class="ta-shell">
-        <textarea id="text" placeholder="הקלד טקסט עברי כאן…" spellcheck="false">השרים התלוננו בקבינט על ההגבלות בלבנון</textarea>
+        <textarea id="text" placeholder="הקלד טקסט עברי כאן…" spellcheck="false">שלום עולם</textarea>
         <div class="ta-foot"><span id="wordCount">0 words</span><span id="charCount">0 chars</span></div>
       </div>
 
@@ -210,17 +201,12 @@
       <div class="field">
         <div class="f-head">
           <span class="f-name">Writer style</span>
-          <span class="f-val" id="styleVal">#73</span>
+          <span class="f-val" id="styleVal">#1</span>
         </div>
         <div class="row">
-          <input type="number" class="num" id="style" min="0" value="73">
-          <label class="toggle" style="gap:9px">
-            <input type="checkbox" id="randStyle">
-            <span class="sw"></span>
-            <span class="t-text"><span class="t-name" style="font-size:13px">random</span></span>
-          </label>
+          <input type="number" class="num" id="style" min="1" max="9" value="1">
         </div>
-        <div class="hint">Writer id <span id="styleRange">0 … ?</span> — each is a distinct handwriting. Toggle random for a surprise writer.</div>
+        <div class="hint">Writer id <span id="styleRange">1 … ?</span> — each is a distinct handwriting.</div>
       </div>
 
       <!-- candidates -->
@@ -231,17 +217,6 @@
         </div>
         <input type="range" id="candidates" min="1" max="50" value="5">
         <div class="hint">Best-of-N drafts generated per word; the HTR keeps the most readable. Higher = cleaner but slower.</div>
-      </div>
-
-      <!-- sampler -->
-      <div class="field">
-        <div class="f-head"><span class="f-name">Sampler</span></div>
-        <div class="seg" id="sampler" role="tablist">
-          <button data-v="dpm" class="on">DPM<small>15 · fast</small></button>
-          <button data-v="ddim">DDIM<small>50 · slow</small></button>
-          <button data-v="ddim100">DDIM<small>100 · best</small></button>
-        </div>
-        <div class="hint">Diffusion solver. DPM is ~2.5× faster at similar quality.</div>
       </div>
 
       <hr class="div">
@@ -267,28 +242,72 @@
           </span>
         </label>
       </div>
+      <div class="field">
+        <label class="toggle">
+          <input type="checkbox" id="fontJitter" checked>
+          <span class="sw"></span>
+          <span class="t-text">
+            <span class="t-name">Font baseline: augmentation</span>
+            <div class="hint">Per-glyph rotation/scale/baseline jitter in the font baseline panel. Off = measured spacing only, no jitter.</div>
+          </span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="toggle">
+          <input type="checkbox" id="vendi">
+          <span class="sw"></span>
+          <span class="t-text">
+            <span class="t-name">Diversity score (Vendi)</span>
+            <div class="hint">Score each panel's own candidate pool (the "candidates per word" drafts, pre-selection) for diversity. Extra compute — off by default.</div>
+          </span>
+        </label>
+      </div>
 
       <button class="go" id="go"><span id="goLabel">Generate handwriting</span></button>
     </section>
 
-    <!-- ============ OUTPUT ============ -->
-    <section class="panel panel-pad out-panel">
-      <div class="out-head">
-        <div class="sec-label" style="margin:0">Output</div>
-        <div class="meta" id="meta"></div>
-      </div>
+    <!-- ============ OUTPUT COLUMN ============ -->
+    <div class="out-col">
 
-      <div class="sheet" id="sheet">
-        <div class="empty" id="emptyState">
-          <svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="M15 5l3 3"/></svg>
-          <div class="msg">— rendered handwriting appears here —</div>
-          <div class="sub">enter Hebrew text and press Generate</div>
+      <!-- diffusion result -->
+      <section class="panel panel-pad out-panel">
+        <div class="out-head">
+          <div class="sec-label" style="margin:0">Output</div>
+          <div class="meta" id="meta"></div>
         </div>
-      </div>
 
-      <div class="err" id="err"></div>
-    </section>
+        <div class="sheet" id="sheet">
+          <div class="empty" id="emptyState">
+            <svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/><path d="M15 5l3 3"/></svg>
+            <div class="msg">— rendered handwriting appears here —</div>
+            <div class="sub">enter Hebrew text and press Generate</div>
+          </div>
+        </div>
 
+        <div class="err" id="err"></div>
+      </section>
+
+      <!-- ============ FONT BASELINE (comparison) ============
+           The deterministic pre-diffusion pipeline: participant TTF fonts, rendered
+           letter-by-letter with the measured Matan spacing + per-glyph jitter used to
+           build the training data for the currently-loaded generator. Same text, same
+           resolved writer, no neural network -- lets the diffusion output above be
+           judged against what it was trained to improve on. Rendered in parallel with
+           the diffusion request, not queued after it -- it's pure CPU/PIL, no GPU lock. -->
+      <section class="panel panel-pad out-panel">
+        <div class="out-head">
+          <div class="sec-label" style="margin:0">Font baseline</div>
+          <div class="meta" id="fontMeta"></div>
+        </div>
+        <div class="sheet" id="fontSheet">
+          <div class="empty" id="fontEmptyState">
+            <div class="msg">— deterministic-font render appears here —</div>
+            <div class="sub">same text &amp; writer, rendered with the training-data pipeline (fonts + measured spacing + jitter, no diffusion)</div>
+          </div>
+        </div>
+      </section>
+
+    </div>
   </div>
 
   <div class="foot">Synth DiffusionPen · diffusion drafting + TrOCR Hebrew selection · single-GPU, requests serialized</div>
@@ -297,7 +316,6 @@
 <script>
 const $ = id => document.getElementById(id);
 const MAX_WORDS = 14;
-let sampler = 'dpm';
 let lastImg = null;
 
 /* ---- live counts ---- */
@@ -314,42 +332,43 @@ $('text').addEventListener('input', updateCounts);
 updateCounts();
 
 /* ---- style ---- */
-function syncStyle(){ $('styleVal').textContent = $('randStyle').checked ? 'random' : '#' + ($('style').value || 0); }
+function clampStyle(){
+  const el = $('style');
+  const max = parseInt(el.max, 10); const min = parseInt(el.min, 10) || 0;
+  let v = parseInt(el.value, 10);
+  if (isNaN(v)) v = min;
+  el.value = Math.min(Math.max(v, min), isNaN(max) ? v : max);
+}
+function syncStyle(){
+  clampStyle();
+  $('styleVal').textContent = '#' + $('style').value;
+}
 $('style').addEventListener('input', syncStyle);
-$('randStyle').addEventListener('change', e => { $('style').disabled = e.target.checked; syncStyle(); });
+$('style').addEventListener('blur', syncStyle);
 syncStyle();
 
 /* ---- candidates ---- */
 $('candidates').addEventListener('input', e => { $('candVal').textContent = e.target.value; });
 
-/* ---- sampler segmented ---- */
-$('sampler').querySelectorAll('button').forEach(b => {
-  b.addEventListener('click', () => {
-    $('sampler').querySelectorAll('button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); sampler = b.dataset.v;
-  });
-});
 
 /* ---- status: poll the backend through the tunnel ---- */
 let styleMaxSet = false;
 async function checkHealth(){
   const st = $('status'), txt = $('statusText');
   try {
-    const d = await (await fetch('/api/health', {cache:'no-store'})).json();
+    const d = await (await fetch('/api/info', {cache:'no-store'})).json();
     st.classList.remove('online','offline','loading');
-    if (!d.connected){
-      st.classList.add('offline');
-      txt.textContent = 'backend offline · start the tunnel';
-    } else if (d.status === 'loading' || !d.style_count){
+    if (!d.style_count){
       st.classList.add('loading');
       txt.textContent = 'loading model…';
     } else {
       st.classList.add('online');
       txt.textContent = 'ready · ' + d.style_count + ' styles';
+      const max = d.style_count;      // UI is 1-indexed; wire format (below) is 0-indexed
+      $('style').max = max;
+      $('styleRange').textContent = '1 … ' + max;
       if (!styleMaxSet){
-        const max = d.style_count - 1;
-        $('style').max = max;
-        $('styleRange').textContent = '0 … ' + max;
+        clampStyle();       // the static default may now be out of range for this model
         styleMaxSet = true;
       }
     }
@@ -362,13 +381,26 @@ async function checkHealth(){
 checkHealth();
 setInterval(checkHealth, 7000);
 
-/* ---- validation ---- */
+/* ---- validation ----
+   Mirrors app.py's validate_text()/normalize_text() exactly -- keep the two in sync,
+   this is a client-side pre-check only, the backend is the real gate. */
+const QUOTE_FOLD = {
+  '"': '\u05f4', '\u201c': '\u05f4', '\u201d': '\u05f4', '\u201e': '\u05f4',
+  "'": '\u05f3', '\u2018': '\u05f3', '\u2019': '\u05f3',
+  '\u2013': '-', '\u2014': '-',
+};
+function normalizeText(text){
+  let t = text;
+  for (const [a, b] of Object.entries(QUOTE_FOLD)) t = t.split(a).join(b);
+  return t;
+}
+const ALLOWED_CHARS = /^[\u0590-\u05FF0-9!(),\-./:;?\s]+$/;
 function validateInput(text){
-  const t = (text || '').trim();
+  const t = normalizeText((text || '').trim());
   if (!t) return 'Please enter some Hebrew text.';
   const words = t.split(/\s+/);
   if (words.length > MAX_WORDS) return 'Too long: ' + words.length + ' words (max ' + MAX_WORDS + ').';
-  if (!/^[\u0590-\u05FF\s]+$/.test(t)) return 'Hebrew letters only — remove non-Hebrew characters, digits or punctuation.';
+  if (!ALLOWED_CHARS.test(t)) return 'Hebrew letters, digits and punctuation (! ( ) , - . / : ; ?) only — please remove English letters or other symbols.';
   if (!/[\u05D0-\u05EA]/.test(t)) return 'Please enter Hebrew text.';
   return null;
 }
@@ -401,13 +433,36 @@ function showResult(d){
   $('dl').addEventListener('click', () => {
     const a = document.createElement('a'); a.href = lastImg; a.download = 'handwriting.png'; a.click();
   });
-  let parts = ['style <b>' + d.style + '</b>', '<b>' + d.words + '</b> words'];
-  if (d.sampler) parts.push('<b>' + d.sampler + '</b>·' + d.steps);
-  if (d.mean_cer !== null && d.mean_cer !== undefined) parts.push('CER <b>' + d.mean_cer.toFixed(3) + '</b>');
+  let parts = ['style <b>' + (d.style + 1) + '</b>', '<b>' + d.words + '</b> words'];
+  if (d.mean_nll !== null && d.mean_nll !== undefined) parts.push('NLL <b>' + d.mean_nll.toFixed(3) + '</b>');
+  if (d.vendi !== null && d.vendi !== undefined) parts.push('Vendi <b>' + d.vendi.toFixed(3) + '</b>');
   $('meta').innerHTML = parts.join('<span class="sep"> / </span>');
 }
 
-/* ---- generate ---- */
+function showFontEmpty(){
+  $('fontSheet').innerHTML =
+    '<div class="empty"><div class="msg">— deterministic-font render appears here —</div></div>';
+  $('fontMeta').innerHTML = '';
+}
+function showFontLoading(){
+  $('fontSheet').innerHTML =
+    '<div class="load"><div class="bar"><i></i></div><div class="msg">rendering fonts…</div></div>';
+  $('fontMeta').innerHTML = '';
+}
+function showFontResult(d){
+  $('fontSheet').innerHTML =
+    '<div class="result"><img src="' + d.image + '" alt="font baseline"></div>';
+  let parts = ['writer <b>' + (d.style + 1) + '</b>', 'font <b>' + d.font + '</b>'];
+  parts.push('jitter <b>' + (d.jitter ? 'on' : 'off') + '</b>');
+  if (d.vendi !== null && d.vendi !== undefined) parts.push('Vendi <b>' + d.vendi.toFixed(3) + '</b>');
+  $('fontMeta').innerHTML = parts.join('<span class="sep"> / </span>');
+}
+
+/* ---- generate ----
+   Both panels use the SAME writer for a fair comparison, but the writer is now
+   resolved client-side (including "random") so the two requests can fire in
+   parallel instead of the font baseline queuing behind the diffusion result --
+   font_baseline is pure CPU/PIL with no GPU lock, so there's no reason to wait. */
 $('go').addEventListener('click', async () => {
   clearError(); $('meta').innerHTML = '';
   const vmsg = validateInput($('text').value);
@@ -415,32 +470,52 @@ $('go').addEventListener('click', async () => {
   let cand = parseInt($('candidates').value);
   if (!(cand >= 1 && cand <= 50)){ showError('Candidates per word must be 1–50.'); return; }
 
-  const body = {
-    text: $('text').value.trim(),
-    style: $('randStyle').checked ? null : parseInt($('style').value),
-    candidates: cand,
-    aberration: $('aberration').checked,
-    normalize: $('normalize').checked,
-    sampler: sampler,
-  };
+  const text = $('text').value.trim();
+  const style = parseInt($('style').value) - 1;   // UI 1-9 -> wire 0-8, resolved here so
+                                                    // both requests use the same writer
+  const normalize = $('normalize').checked;
+  const fontJitter = $('fontJitter').checked;
+  const scoreVendi = $('vendi').checked;
 
   const btn = $('go');
   btn.disabled = true; $('goLabel').textContent = 'Generating…';
   showLoading();
-  try{
-    const r = await fetch('/api/generate', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
-    });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
-    const d = await r.json();
-    stopTimer();
-    showResult(d);
-  } catch(e){
-    stopTimer(); showEmpty();
-    showError('Error: ' + e.message);
-  } finally {
-    btn.disabled = false; $('goLabel').textContent = 'Generate handwriting';
-  }
+  showFontLoading();
+
+  const genDone = (async () => {
+    try{
+      const r = await fetch('/api/generate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text, style, candidates: cand,
+                                aberration: $('aberration').checked, normalize,
+                                vendi: scoreVendi })
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+      const d = await r.json();
+      stopTimer();
+      showResult(d);
+    } catch(e){
+      stopTimer(); showEmpty();
+      showError('Error: ' + e.message);
+    }
+  })();
+
+  const fontDone = (async () => {
+    try{
+      const r = await fetch('/api/font_baseline', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text, style, normalize, font_jitter: fontJitter,
+                                candidates: cand, vendi: scoreVendi })
+      });
+      if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+      showFontResult(await r.json());
+    } catch(e){
+      showFontEmpty();
+    }
+  })();
+
+  await Promise.allSettled([genDone, fontDone]);
+  btn.disabled = false; $('goLabel').textContent = 'Generate handwriting';
 });
 
 /* Cmd/Ctrl+Enter to generate */

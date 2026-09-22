@@ -5,7 +5,7 @@ Exposes a tiny API the Azure frontend calls (through the reverse SSH tunnel):
     GET  /health    -> {"status": "ok", "style_count": N}
     GET  /info      -> {"style_count": N}
     POST /generate  -> JSON {text, style?, candidates, aberration, normalize, sampler}
-                       -> {image (base64 png), style, words, mean_cer, sampler, steps}
+                       -> {image (base64 png), style, words, mean_nll, sampler, steps}
 
 GPU work is serialized with a lock (single device, models not thread-safe).
 
@@ -24,8 +24,22 @@ from pipeline import Generator
 
 MAX_WORDS = 14
 MAX_CANDIDATES = 50
-HEBREW_ONLY = re.compile(r"^[֐-׿\s]+$")     # Hebrew block + whitespace
+# Kept in sync with app.py / static/index.html -- see the comment there for why this
+# whitelist and the quote fold look the way they do.
+PUNCT_ASCII = r"!(),\-./:;?"
+ALLOWED_CHARS = re.compile(r"^[\u0590-\u05FF0-9" + PUNCT_ASCII + r"\s]+$")
 HEBREW_LETTER = re.compile(r"[א-ת]")        # at least one real letter
+QUOTE_FOLD = {
+    '"': "\u05f4", "\u201c": "\u05f4", "\u201d": "\u05f4", "\u201e": "\u05f4",
+    "'": "\u05f3", "\u2018": "\u05f3", "\u2019": "\u05f3",
+    "\u2013": "-", "\u2014": "-",
+}
+
+
+def normalize_text(text: str) -> str:
+    for a, b in QUOTE_FOLD.items():
+        text = text.replace(a, b)
+    return text
 
 
 def validate_text(text: str) -> str | None:
@@ -35,8 +49,8 @@ def validate_text(text: str) -> str | None:
     words = t.split()
     if len(words) > MAX_WORDS:
         return f"Too long: {len(words)} words (max {MAX_WORDS})."
-    if not HEBREW_ONLY.match(t):
-        return "Hebrew letters only — please remove non-Hebrew characters, digits or punctuation."
+    if not ALLOWED_CHARS.match(t):
+        return "Hebrew letters, digits and punctuation (! ( ) , - . / : ; ?) only — please remove English letters or other symbols."
     if not HEBREW_LETTER.search(t):
         return "Please enter Hebrew text."
     return None
@@ -76,6 +90,7 @@ def info():
 def generate(req: GenReq):
     if gen is None:
         raise HTTPException(503, "model still loading")
+    req.text = normalize_text(req.text)
     msg = validate_text(req.text)
     if msg:
         raise HTTPException(400, msg)
@@ -96,5 +111,5 @@ def generate(req: GenReq):
     out["image"].save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
     return {"image": "data:image/png;base64," + b64,
-            "style": out["style"], "words": out["words"], "mean_cer": out["mean_cer"],
+            "style": out["style"], "words": out["words"], "mean_nll": out["mean_nll"],
             "sampler": out["sampler"], "steps": out["steps"]}
